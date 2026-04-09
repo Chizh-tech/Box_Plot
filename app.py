@@ -1,10 +1,11 @@
 import os
+import shutil
 import tempfile
 import uuid
 
 import numpy as np
 import pandas as pd
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = tempfile.mkdtemp()
@@ -14,6 +15,76 @@ app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB
 uploaded_files: dict = {}
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xls"}
+
+# ---------------------------------------------------------------------------
+# Vendor asset resolution
+# Tries to locate Bootstrap 5 / Plotly files from the installed Python
+# packages (flask-bootstrap, plotly) so the app works without CDN access.
+# ---------------------------------------------------------------------------
+_VENDOR_DIR = os.path.join(os.path.dirname(__file__), "static", "vendor")
+
+
+def _ensure_vendors() -> None:
+    """Copy frontend vendor assets from installed packages if not present."""
+    os.makedirs(_VENDOR_DIR, exist_ok=True)
+
+    # ---- Plotly JS --------------------------------------------------------
+    _copy_if_missing("plotly.min.js", _find_plotly_js())
+
+    # ---- Bootstrap 5 (via bootstrap-flask package) -------------------------
+    bs5 = _find_bootstrap5_dir()
+    if bs5:
+        _copy_if_missing("bootstrap.min.css", os.path.join(bs5, "css", "bootstrap.min.css"))
+        _copy_if_missing("popper.min.js",     os.path.join(bs5, "umd", "popper.min.js"))
+        _copy_if_missing("bootstrap.min.js",  os.path.join(bs5, "js",  "bootstrap.min.js"))
+        # Bootstrap Icons
+        icons_css = os.path.join(bs5, "css", "font", "bootstrap-icons.min.css")
+        icons_font_dir = os.path.join(bs5, "css", "font", "fonts")
+        _copy_if_missing("bootstrap-icons.min.css", icons_css)
+        _copy_fonts_if_missing(icons_font_dir)
+
+
+def _copy_if_missing(name: str, src: str | None) -> None:
+    dest = os.path.join(_VENDOR_DIR, name)
+    if not os.path.exists(dest) and src and os.path.exists(src):
+        shutil.copy2(src, dest)
+
+
+def _copy_fonts_if_missing(src_dir: str | None) -> None:
+    if not src_dir or not os.path.isdir(src_dir):
+        return
+    fonts_dest = os.path.join(_VENDOR_DIR, "fonts")
+    os.makedirs(fonts_dest, exist_ok=True)
+    for fn in os.listdir(src_dir):
+        dest = os.path.join(fonts_dest, fn)
+        if not os.path.exists(dest):
+            shutil.copy2(os.path.join(src_dir, fn), dest)
+
+
+def _find_plotly_js() -> str | None:
+    try:
+        import plotly as _plotly
+        candidate = os.path.join(os.path.dirname(_plotly.__file__), "package_data", "plotly.min.js")
+        if os.path.exists(candidate):
+            return candidate
+    except ImportError:
+        pass
+    return None
+
+
+def _find_bootstrap5_dir() -> str | None:
+    try:
+        import flask_bootstrap as _fb
+        candidate = os.path.join(os.path.dirname(_fb.__file__), "static", "bootstrap5")
+        if os.path.isdir(candidate):
+            return candidate
+    except ImportError:
+        pass
+    return None
+
+
+# Run vendor setup at import time (before first request)
+_ensure_vendors()
 
 
 def _safe_float(value):
