@@ -63,8 +63,8 @@ def _copy_fonts_if_missing(src_dir: str | None) -> None:
 
 def _find_plotly_js() -> str | None:
     try:
-        import plotly as _plotly
-        candidate = os.path.join(os.path.dirname(_plotly.__file__), "package_data", "plotly.min.js")
+        import plotly as plotly_pkg
+        candidate = os.path.join(os.path.dirname(plotly_pkg.__file__), "package_data", "plotly.min.js")
         if os.path.exists(candidate):
             return candidate
     except ImportError:
@@ -74,8 +74,8 @@ def _find_plotly_js() -> str | None:
 
 def _find_bootstrap5_dir() -> str | None:
     try:
-        import flask_bootstrap as _fb
-        candidate = os.path.join(os.path.dirname(_fb.__file__), "static", "bootstrap5")
+        import flask_bootstrap as fb_module
+        candidate = os.path.join(os.path.dirname(fb_module.__file__), "static", "bootstrap5")
         if os.path.isdir(candidate):
             return candidate
     except ImportError:
