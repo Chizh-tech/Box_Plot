@@ -1,11 +1,13 @@
 import os
+import json
 import uuid
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 import tkinter as tk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends._backend_tk import NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from tkinter import filedialog, messagebox, ttk
@@ -15,6 +17,8 @@ STAGE_COLORS = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
     "#9467bd", "#8c564b", "#e377c2", "#17becf",
 ]
+
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "box_plot_config.json")
 
 
 def default_config() -> dict:
@@ -27,7 +31,9 @@ def default_config() -> dict:
         "lsl_row": None,
         "upper_tol_row": None,
         "lower_tol_row": None,
+        "gdt_row": None,
         "data_start_row": 1,
+        "data_end_row": None,
         "name_col": 0,
         "first_data_row": 1,
         "nominal_col": None,
@@ -56,6 +62,25 @@ def _cell_display(value):
             return ""
         return round(value, 6)
     return str(value)
+
+
+def _is_gdt_marker(value) -> bool:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return False
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    return text in {"1", "y", "yes", "true", "t", "gdt", "gd&t", "是"}
+
+
+def _normalize_config(config) -> dict:
+    base = default_config()
+    if not isinstance(config, dict):
+        return base
+    for key in base:
+        if key in config:
+            base[key] = config[key]
+    return base
 
 
 def _read_excel(path: str, sheet_name: str) -> pd.DataFrame:
@@ -108,7 +133,13 @@ def build_stage_dimensions(path: str, sheet_name: str, config: dict, selected_di
         lsl_row = config.get("lsl_row")
         upper_tol_row = config.get("upper_tol_row")
         lower_tol_row = config.get("lower_tol_row")
+        gdt_row = config.get("gdt_row")
         data_start_row = int(config.get("data_start_row", 1))
+        data_end_row = config.get("data_end_row")
+        if data_end_row is None:
+            data_end_index = len(df) - 1
+        else:
+            data_end_index = min(int(data_end_row), len(df) - 1)
 
         def row_value(row_index, column_index):
             if row_index is None:
@@ -131,14 +162,27 @@ def build_stage_dimensions(path: str, sheet_name: str, config: dict, selected_di
             lsl = row_value(lsl_row, column_index)
             upper_tol = row_value(upper_tol_row, column_index)
             lower_tol = row_value(lower_tol_row, column_index)
+            is_gdt = False
+            if gdt_row is not None and 0 <= int(gdt_row) < len(df):
+                is_gdt = _is_gdt_marker(df.iloc[int(gdt_row), column_index])
 
-            if usl is None and upper_tol is not None and nominal is not None:
-                usl = nominal + upper_tol
-            if lsl is None and lower_tol is not None and nominal is not None:
-                lsl = nominal - abs(lower_tol)
+            if nominal is not None:
+                if is_gdt:
+                    if usl is None and lsl is None:
+                        if upper_tol is not None:
+                            usl = nominal + upper_tol
+                            lsl = None
+                        elif lower_tol is not None:
+                            lsl = nominal - abs(lower_tol)
+                            usl = None
+                else:
+                    if usl is None and upper_tol is not None:
+                        usl = nominal + upper_tol
+                    if lsl is None and lower_tol is not None:
+                        lsl = nominal - abs(lower_tol)
 
             measurements = []
-            for row_index in range(data_start_row, len(df)):
+            for row_index in range(data_start_row, data_end_index + 1):
                 value = _safe_float(df.iloc[row_index, column_index])
                 if value is not None:
                     measurements.append(value)
@@ -149,6 +193,7 @@ def build_stage_dimensions(path: str, sheet_name: str, config: dict, selected_di
                     "nominal": nominal,
                     "usl": usl,
                     "lsl": lsl,
+                    "is_gdt": is_gdt,
                     "measurements": measurements,
                 }
             )
@@ -251,7 +296,9 @@ class ConfigDialog(tk.Toplevel):
             "lsl_row": tk.StringVar(value=display_value(config.get("lsl_row"))),
             "upper_tol_row": tk.StringVar(value=display_value(config.get("upper_tol_row"))),
             "lower_tol_row": tk.StringVar(value=display_value(config.get("lower_tol_row"))),
+            "gdt_row": tk.StringVar(value=display_value(config.get("gdt_row"))),
             "data_start_row": tk.StringVar(value=display_value(config.get("data_start_row", 1))),
+            "data_end_row": tk.StringVar(value=display_value(config.get("data_end_row"))),
             "name_col": tk.StringVar(value=display_value(config.get("name_col", 0))),
             "first_data_row": tk.StringVar(value=display_value(config.get("first_data_row", 1))),
             "nominal_col": tk.StringVar(value=display_value(config.get("nominal_col"))),
@@ -287,6 +334,7 @@ class ConfigDialog(tk.Toplevel):
             variable=self.format_var,
             command=self._toggle_format_frames,
         ).grid(row=0, column=1, sticky="w")
+        ttk.Button(format_frame, text="套用 CPK 模板", command=self._apply_cpk_template).grid(row=0, column=2, sticky="e", padx=(18, 0))
 
         content = ttk.Frame(self, padding=(12, 8, 12, 0))
         content.grid(row=2, column=0, sticky="nsew")
@@ -305,7 +353,9 @@ class ConfigDialog(tk.Toplevel):
             ("LSL 行号", "lsl_row"),
             ("上公差行号", "upper_tol_row"),
             ("下公差行号", "lower_tol_row"),
+            ("GD&T 判断行号", "gdt_row"),
             ("数据起始行号", "data_start_row"),
+            ("数据结束行号", "data_end_row"),
         ])
         self._build_form(self.row_frame, [
             ("尺寸名列号", "name_col"),
@@ -353,6 +403,18 @@ class ConfigDialog(tk.Toplevel):
             self.row_frame.grid()
             self.col_frame.grid_remove()
 
+    def _apply_cpk_template(self):
+        # Template rows are provided as 1-based values for user readability.
+        self.format_var.set("col_per_dim")
+        self.vars["header_row"].set("10")
+        self.vars["nominal_row"].set("11")
+        self.vars["upper_tol_row"].set("12")
+        self.vars["lower_tol_row"].set("13")
+        self.vars["gdt_row"].set("14")
+        self.vars["data_start_row"].set("79")
+        self.vars["data_end_row"].set("111")
+        self._toggle_format_frames()
+
     def _load_preview(self):
         rows = load_preview_rows(self.entry.path, self.entry.selected_sheet)
         column_count = max((len(row) for row in rows), default=0)
@@ -384,7 +446,9 @@ class ConfigDialog(tk.Toplevel):
                     "lsl_row": self._one_based_to_zero_based(self.vars["lsl_row"].get()),
                     "upper_tol_row": self._one_based_to_zero_based(self.vars["upper_tol_row"].get()),
                     "lower_tol_row": self._one_based_to_zero_based(self.vars["lower_tol_row"].get()),
+                    "gdt_row": self._one_based_to_zero_based(self.vars["gdt_row"].get()),
                     "data_start_row": self._one_based_to_zero_based(self.vars["data_start_row"].get()) or 1,
+                    "data_end_row": self._one_based_to_zero_based(self.vars["data_end_row"].get()),
                 }
             else:
                 config = {
@@ -420,6 +484,8 @@ class BoxPlotApp(tk.Tk):
         self.files: list[FileEntry] = []
         self.current_figure = None
         self._refreshing_selection = False
+        self.default_template_config: dict | None = None
+        self.default_sheet_name: str | None = None
 
         self.stage_var = tk.StringVar()
         self.sheet_var = tk.StringVar()
@@ -432,6 +498,7 @@ class BoxPlotApp(tk.Tk):
 
         self._build_ui()
         self.stage_var.trace_add("write", self._on_stage_changed)
+        self._load_default_template_if_exists()
 
     def _build_ui(self):
         style = ttk.Style(self)
@@ -457,6 +524,8 @@ class BoxPlotApp(tk.Tk):
         ttk.Button(file_actions, text="添加 Excel", command=self.add_files).pack(side="left")
         ttk.Button(file_actions, text="删除所选", command=self.remove_selected_file).pack(side="left", padx=(8, 0))
         ttk.Button(file_actions, text="配置所选文件", command=self.open_config_dialog).pack(side="left", padx=(8, 0))
+        ttk.Button(file_actions, text="保存配置", command=self.save_config_to_file).pack(side="left", padx=(8, 0))
+        ttk.Button(file_actions, text="加载配置", command=self.load_config_from_file).pack(side="left", padx=(8, 0))
 
         file_frame = ttk.LabelFrame(left, text="文件列表", padding=8)
         file_frame.grid(row=1, column=0, sticky="nsew", pady=(10, 10))
@@ -588,7 +657,7 @@ class BoxPlotApp(tk.Tk):
         added = 0
         for path in paths:
             try:
-                sheet_names = pd.ExcelFile(path).sheet_names
+                sheet_names = [str(name) for name in pd.ExcelFile(path).sheet_names]
             except Exception as exc:
                 messagebox.showerror("无法读取文件", f"{os.path.basename(path)}\n\n{exc}")
                 continue
@@ -599,8 +668,14 @@ class BoxPlotApp(tk.Tk):
                 filename=os.path.basename(path),
                 stage_name=f"阶段 {len(self.files) + 1}",
                 sheet_names=sheet_names,
-                selected_sheet=sheet_names[0] if sheet_names else "",
+                selected_sheet=self.default_sheet_name if (self.default_sheet_name and self.default_sheet_name in sheet_names) else (sheet_names[0] if sheet_names else ""),
             )
+            if self.default_template_config:
+                entry.config = _normalize_config(self.default_template_config)
+                try:
+                    entry.dimensions = extract_dimensions(entry.path, entry.selected_sheet, entry.config)
+                except Exception:
+                    entry.dimensions = []
             self.files.append(entry)
             added += 1
 
@@ -675,6 +750,101 @@ class BoxPlotApp(tk.Tk):
         self._refresh_file_tree()
         self._refresh_dimension_list()
         self.status_var.set(f"{entry.filename} 已切换到 Sheet: {entry.selected_sheet}，请重新提取尺寸。")
+
+    def _load_default_template_if_exists(self):
+        if not os.path.exists(DEFAULT_CONFIG_PATH):
+            return
+        try:
+            with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as file_obj:
+                payload = json.load(file_obj)
+            loaded = payload.get("template_config") if isinstance(payload, dict) else payload
+            self.default_template_config = _normalize_config(loaded)
+            if isinstance(payload, dict):
+                preferred_sheet = payload.get("preferred_sheet")
+                self.default_sheet_name = str(preferred_sheet) if preferred_sheet else None
+            self.status_var.set(f"已自动加载默认配置：{DEFAULT_CONFIG_PATH}")
+        except Exception:
+            self.default_template_config = None
+            self.default_sheet_name = None
+
+    def _apply_config_to_entry(self, entry: FileEntry, config: dict):
+        entry.config = _normalize_config(config)
+        if self.default_sheet_name and self.default_sheet_name in entry.sheet_names:
+            entry.selected_sheet = self.default_sheet_name
+        entry.dimensions = extract_dimensions(entry.path, entry.selected_sheet, entry.config)
+
+    def save_config_to_file(self):
+        entry = self._get_selected_entry()
+        if not entry:
+            messagebox.showinfo("提示", "请先选择一个文件再保存配置。")
+            return
+
+        path = filedialog.asksaveasfilename(
+            title="保存配置文件",
+            defaultextension=".json",
+            initialfile="box_plot_config.json",
+            filetypes=[("JSON file", "*.json")],
+        )
+        if not path:
+            return
+
+        payload = {
+            "version": 1,
+            "template_config": entry.config,
+            "preferred_sheet": entry.selected_sheet,
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as file_obj:
+                json.dump(payload, file_obj, ensure_ascii=False, indent=2)
+            self.default_template_config = _normalize_config(entry.config)
+            self.default_sheet_name = entry.selected_sheet or None
+            # Keep a predictable default file for next startup.
+            with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as file_obj:
+                json.dump(payload, file_obj, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            messagebox.showerror("保存失败", f"写入配置文件失败：\n{exc}")
+            return
+
+        self.status_var.set(f"配置已保存：{path}")
+
+    def load_config_from_file(self):
+        path = filedialog.askopenfilename(
+            title="加载配置文件",
+            filetypes=[("JSON file", "*.json")],
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as file_obj:
+                payload = json.load(file_obj)
+            loaded = payload.get("template_config") if isinstance(payload, dict) else payload
+            config = _normalize_config(loaded)
+        except Exception as exc:
+            messagebox.showerror("加载失败", f"读取配置文件失败：\n{exc}")
+            return
+
+        self.default_template_config = config
+        if isinstance(payload, dict):
+            preferred_sheet = payload.get("preferred_sheet")
+            self.default_sheet_name = str(preferred_sheet) if preferred_sheet else None
+
+        entry = self._get_selected_entry()
+        if entry:
+            try:
+                self._apply_config_to_entry(entry, config)
+            except Exception as exc:
+                messagebox.showwarning("配置已加载", f"配置已加载为默认模板，但应用到当前文件失败：\n{exc}")
+            self._refresh_file_tree()
+            self._refresh_dimension_list()
+
+        try:
+            with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as file_obj:
+                json.dump({"version": 1, "template_config": config, "preferred_sheet": self.default_sheet_name}, file_obj, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        self.status_var.set(f"已加载配置：{path}")
 
     def remove_selected_file(self):
         entry = self._get_selected_entry()
@@ -891,10 +1061,19 @@ class BoxPlotApp(tk.Tk):
                 mean = float(np.mean(measurements))
                 std = float(np.std(measurements))
                 cpk = "-"
-                if dim["usl"] is not None and dim["lsl"] is not None and std > 0:
-                    cpu = (dim["usl"] - mean) / (3 * std)
-                    cpl = (mean - dim["lsl"]) / (3 * std)
-                    cpk = f"{min(cpu, cpl):.3f}"
+                if std > 0:
+                    has_usl = dim["usl"] is not None
+                    has_lsl = dim["lsl"] is not None
+                    if has_usl and has_lsl:
+                        cpu = (dim["usl"] - mean) / (3 * std)
+                        cpl = (mean - dim["lsl"]) / (3 * std)
+                        cpk = f"{min(cpu, cpl):.3f}"
+                    elif has_usl:
+                        cpu = (dim["usl"] - mean) / (3 * std)
+                        cpk = f"{cpu:.3f}"
+                    elif has_lsl:
+                        cpl = (mean - dim["lsl"]) / (3 * std)
+                        cpk = f"{cpl:.3f}"
                 self.stats_tree.insert(
                     "",
                     "end",
