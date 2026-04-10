@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import tkinter as tk
+from matplotlib import font_manager, rcParams
 from matplotlib.backends._backend_tk import NavigationToolbar2Tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -19,6 +20,23 @@ STAGE_COLORS = [
 ]
 
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "box_plot_config.json")
+
+
+def _configure_matplotlib_chinese_font() -> None:
+    preferred_fonts = [
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "Source Han Sans CN",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS",
+    ]
+    installed = {font.name for font in font_manager.fontManager.ttflist}
+    selected = next((name for name in preferred_fonts if name in installed), None)
+    if selected:
+        current = rcParams.get("font.sans-serif", [])
+        rcParams["font.sans-serif"] = [selected, *[font for font in current if font != selected]]
+    rcParams["axes.unicode_minus"] = False
 
 
 def default_config() -> dict:
@@ -1116,6 +1134,7 @@ class BoxPlotApp(tk.Tk):
 
 
 def main():
+    _configure_matplotlib_chinese_font()
     app = BoxPlotApp()
     app.mainloop()
 

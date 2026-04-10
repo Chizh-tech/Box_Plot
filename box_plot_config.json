@@ -1,8 +1,5 @@
 {
   "version": 1,
-  "name": "Midwest_5G_EV2_CPK_Template",
-  "source_file": "templates/Midwest 5G EV2 CPK measurement data 20260331.xlsx",
-  "preferred_sheet": "CPK",
   "template_config": {
     "format": "col_per_dim",
     "header_row": 9,
@@ -23,5 +20,6 @@
     "upper_tol_col": null,
     "lower_tol_col": null,
     "data_start_col": 4
-  }
+  },
+  "preferred_sheet": "CPK"
 }
