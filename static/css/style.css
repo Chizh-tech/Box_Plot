@@ -1,0 +1,102 @@
+/* =========================================================
+   Box Plot Tool – Custom Styles
+   ========================================================= */
+
+body {
+  background: #f5f7fb;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+/* ---------- Drop Zone ---------- */
+.drop-zone {
+  border: 2px dashed #93b4d8;
+  border-radius: 10px;
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  background: #f0f5fc;
+}
+.drop-zone:hover,
+.drop-zone.drag-over {
+  background: #ddeeff;
+  border-color: #0d6efd;
+}
+
+/* ---------- File item cards ---------- */
+.file-item {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+  transition: box-shadow 0.15s;
+}
+.file-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.file-item .file-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  word-break: break-all;
+  color: #333;
+}
+.file-item .badge-stage {
+  font-size: 0.72rem;
+  background: #e9f0ff;
+  color: #0d6efd;
+  border: 1px solid #b8d0ff;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.stage-input {
+  font-size: 0.82rem;
+}
+
+/* ---------- Plot area ---------- */
+.plot-container {
+  width: 100%;
+  min-height: 500px;
+  background: #fff;
+  padding: 6px;
+}
+
+/* ---------- Preview table ---------- */
+.preview-table-wrap {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+}
+#previewTable td,
+#previewTable th {
+  white-space: nowrap;
+  font-size: 0.78rem;
+  padding: 2px 6px;
+}
+#previewTable tr:first-child td {
+  background: #e8f0fe;
+  font-weight: 600;
+}
+
+/* ---------- Row number highlights ---------- */
+.row-highlight-nominal { background: #fffde7 !important; }
+.row-highlight-usl     { background: #fce4ec !important; }
+.row-highlight-lsl     { background: #e8f5e9 !important; }
+.row-highlight-data    { background: #f3e5f5 !important; }
+
+/* ---------- Dim checkboxes ---------- */
+.dim-check-label {
+  font-size: 0.83rem;
+  cursor: pointer;
+}
+
+/* ---------- Stats table ---------- */
+#statsTable td, #statsTable th {
+  font-size: 0.78rem;
+}
+
+/* ---------- Responsive tweaks ---------- */
+@media (max-width: 991px) {
+  .plot-container { min-height: 360px; }
+}
